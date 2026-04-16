@@ -1,0 +1,24 @@
+# ── Secrets — never commit the real config ───
+config.py
+
+# ── Runtime output ────────────────────────────
+output/test_results.json
+logs/
+
+# ── Python ────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# ── OS / Editor ───────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
