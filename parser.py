@@ -77,6 +77,34 @@ def extract_product_ids(search_result: dict) -> list[str]:
     return ids
 
 
+def extract_search_product(item: dict, category: str) -> dict:
+    """
+    Flatten a single search-result item (Step-1 only) into the storage schema.
+    Used in db mode to avoid the Step-2 detail call entirely.
+    """
+    price = None
+    raw_price = item.get("price") or item.get("price_string") or ""
+    if isinstance(raw_price, (int, float)):
+        price = float(raw_price)
+    elif isinstance(raw_price, str):
+        cleaned = raw_price.replace("$", "").replace(",", "").strip()
+        try:
+            price = float(cleaned)
+        except ValueError:
+            price = None
+
+    return {
+        "product_id":   str(item.get("product_id") or item.get("item_id") or ""),
+        "title":        item.get("title") or item.get("name") or "",
+        "price":        price,
+        "description":  "",
+        "brand":        item.get("brand") or item.get("brand_name") or "",
+        "model_number": item.get("model_number") or item.get("model") or "",
+        "category":     category,
+        "raw_json":     item,
+    }
+
+
 def extract_product_data(detail: dict, category: str) -> dict:
     """
     Flatten the Step-2 detail response into the schema we store.
@@ -152,36 +180,22 @@ def parse_query(query: str, mode: str, conn=None, test_results: list | None = No
             logger.error("  SerpApi error: %s", search_result["error"])
             break
 
-        product_ids = extract_product_ids(search_result)
-        if not product_ids:
+        raw_products = search_result.get("products", [])
+        if not raw_products:
             logger.info("  No more products on page %d — stopping.", page)
             break
 
-        logger.info("  Found %d product IDs on page %d.", len(product_ids), page)
-        total_found += len(product_ids)
+        logger.info("  Found %d products on page %d.", len(raw_products), page)
+        total_found += len(raw_products)
 
-        for pid in product_ids:
-            time.sleep(config.REQUEST_DELAY)
-            try:
-                detail = fetch_product_detail(pid)
-            except Exception as exc:
-                logger.warning("  Detail fetch failed for %s: %s", pid, exc)
-                skipped += 1
-                continue
-
-            if "error" in detail:
-                logger.warning("  Detail error for %s: %s", pid, detail["error"])
-                skipped += 1
-                continue
-
-            product = extract_product_data(detail, category=query)
-
-            if not product["product_id"]:
-                product["product_id"] = pid  # fallback
-
-            # ── Save ──────────────────────────
-            if mode == "db":
-                import db as db_module
+        if mode == "db":
+            # ── DB mode: use search data directly, no detail call ──
+            import db as db_module
+            for item in raw_products:
+                product = extract_search_product(item, category=query)
+                if not product["product_id"]:
+                    skipped += 1
+                    continue
                 inserted = db_module.save_product(conn, product)
                 if inserted:
                     saved += 1
@@ -189,11 +203,32 @@ def parse_query(query: str, mode: str, conn=None, test_results: list | None = No
                 else:
                     skipped += 1
                     logger.debug("  Duplicate (skipped): %s", product["product_id"])
-            else:  # test mode
-                # Dedup in-memory by product_id
+        else:
+            # ── Test mode: fetch full detail per product ───────────
+            for item in raw_products:
+                pid = str(item.get("product_id") or item.get("item_id") or "")
+                if not pid:
+                    skipped += 1
+                    continue
+                time.sleep(config.REQUEST_DELAY)
+                try:
+                    detail = fetch_product_detail(pid)
+                except Exception as exc:
+                    logger.warning("  Detail fetch failed for %s: %s", pid, exc)
+                    skipped += 1
+                    continue
+
+                if "error" in detail:
+                    logger.warning("  Detail error for %s: %s", pid, detail["error"])
+                    skipped += 1
+                    continue
+
+                product = extract_product_data(detail, category=query)
+                if not product["product_id"]:
+                    product["product_id"] = pid
+
                 existing_ids = {r["product_id"] for r in test_results}
                 if product["product_id"] not in existing_ids:
-                    # raw_json may not be JSON-serialisable cleanly; keep it
                     test_results.append(product)
                     saved += 1
                 else:
