@@ -39,14 +39,8 @@ RETURNING id;
 
 
 def get_connection():
-    """Open and return a psycopg2 connection using config settings."""
-    return psycopg2.connect(
-        host=config.DB_HOST,
-        port=config.DB_PORT,
-        dbname=config.DB_NAME,
-        user=config.DB_USER,
-        password=config.DB_PASSWORD,
-    )
+    """Open and return a psycopg2 connection using DATABASE_URL."""
+    return psycopg2.connect(config.DATABASE_URL, sslmode="require")
 
 
 def init_db(conn):
