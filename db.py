@@ -40,7 +40,16 @@ RETURNING id;
 
 def get_connection():
     """Open and return a psycopg2 connection using DATABASE_URL."""
-    return psycopg2.connect(config.DATABASE_URL, sslmode="require")
+    from urllib.parse import urlparse, unquote
+    url = urlparse(config.DATABASE_URL)
+    return psycopg2.connect(
+        host=url.hostname,
+        port=url.port or 5432,
+        dbname=url.path.lstrip("/"),
+        user=unquote(url.username or ""),
+        password=unquote(url.password or ""),
+        sslmode="require",
+    )
 
 
 def init_db(conn):
