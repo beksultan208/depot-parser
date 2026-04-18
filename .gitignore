@@ -1,5 +1,4 @@
-# ── Secrets — never commit the real config ───
-config.py
+# config.py is now safe to commit (reads from env vars, no hardcoded secrets)
 
 # ── Runtime output ────────────────────────────
 output/test_results.json
